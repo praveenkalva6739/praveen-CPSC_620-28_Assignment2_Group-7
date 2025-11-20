@@ -1,3 +1,250 @@
-src/
-data/
-docs/
+"""
+Financial Transactions Summary Tool
+
+This file contains a small collection of functions that work with the
+financial_transactions.csv dataset.  The focus is on writing simple,
+readable code that can be reused later in a dashboard or another tool.
+
+Author: (your group members)
+Date: (sprint dates)
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+def load_transactions(csv_path: str) -> pd.DataFrame:
+    """
+    Load the financial transactions CSV file.
+
+    Steps:
+    1. Read the CSV into a pandas DataFrame.
+    2. Convert the 'date' column to a proper datetime object.
+    3. Clean the 'type' column (lower case, remove spaces).
+    4. Remove any rows that are missing critical values.
+
+    Returns:
+        A cleaned pandas DataFrame.
+    """
+    # 1. Read the CSV
+    df = pd.read_csv(csv_path)
+
+    # 2. Convert date column
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    # 3. Clean the transaction type column
+    df["type"] = df["type"].astype(str).str.strip().str.lower()
+
+    # Only keep rows that are clearly credit or debit
+    df = df[df["type"].isin(["credit", "debit"])]
+
+    # 4. Drop rows where essential information is missing
+    df = df.dropna(subset=["date", "amount", "customer_id"])
+
+    # Make sure numeric columns are actually numeric
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+    df["customer_id"] = pd.to_numeric(
+        df["customer_id"], errors="coerce", downcast="integer"
+    )
+
+    df = df.dropna(subset=["amount", "customer_id"])
+
+    return df
+
+
+def add_time_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add helper columns related to time.
+
+    We add:
+        - year (e.g., 2020)
+        - month (1-12)
+        - year_month as a string "YYYY-MM"
+
+    These columns make it easier to build monthly summaries later.
+    """
+    df = df.copy()
+    df["year"] = df["date"].dt.year
+    df["month"] = df["date"].dt.month
+    df["year_month"] = df["date"].dt.to_period("M").astype(str)
+    return df
+
+
+def overall_summary(df: pd.DataFrame) -> dict:
+    """
+    Build a simple overall summary of all transactions.
+
+    The result is a dictionary instead of a print statement so that
+    other code (or a dashboard) can reuse it easily.
+
+    Returns keys such as:
+        - total_transactions
+        - total_credit
+        - total_debit
+        - net_amount
+        - average_transaction_amount
+        - max_transaction_amount
+        - min_transaction_amount
+    """
+    total_transactions = len(df)
+    total_credit = df.loc[df["type"] == "credit", "amount"].sum()
+    total_debit = df.loc[df["type"] == "debit", "amount"].sum()
+
+    summary = {
+        "total_transactions": total_transactions,
+        "total_credit": float(total_credit),
+        "total_debit": float(total_debit),
+        # Net = money in (credit) minus money out (debit)
+        "net_amount": float(total_credit - total_debit),
+        "average_transaction_amount": float(df["amount"].mean()),
+        "max_transaction_amount": float(df["amount"].max()),
+        "min_transaction_amount": float(df["amount"].min()),
+    }
+    return summary
+
+
+def monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build a month-by-month summary of credit, debit, and net amounts.
+
+    The returned DataFrame has:
+        - year_month: "YYYY-MM"
+        - total_credit: sum of credit transactions in that month
+        - total_debit: sum of debit transactions in that month
+        - transaction_count: how many transactions in that month
+        - net_amount: total_credit - total_debit
+    """
+    df_time = add_time_columns(df)
+
+    # Put credit and debit into separate columns using a pivot table
+    pivot = (
+        df_time.pivot_table(
+            index="year_month",
+            columns="type",
+            values="amount",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        .reset_index()
+    )
+
+    # After the pivot we expect columns: year_month, credit, debit
+    pivot = pivot.rename(columns={"credit": "total_credit", "debit": "total_debit"})
+
+    # Count the number of transactions per month
+    counts = (
+        df_time.groupby("year_month")["transaction_id"]
+        .count()
+        .reset_index(name="transaction_count")
+    )
+
+    monthly = pivot.merge(counts, on="year_month")
+    monthly["net_amount"] = monthly["total_credit"] - monthly["total_debit"]
+
+    # Sort by time so that plots are easier to read
+    monthly = monthly.sort_values("year_month")
+    return monthly
+
+
+def customer_summary(df: pd.DataFrame, customer_id: int) -> dict:
+    """
+    Build a basic summary for a single customer.
+
+    If the customer is not found, an empty dictionary is returned.
+    """
+    subset = df[df["customer_id"] == customer_id]
+
+    if subset.empty:
+        return {}
+
+    total_credit = subset.loc[subset["type"] == "credit", "amount"].sum()
+    total_debit = subset.loc[subset["type"] == "debit", "amount"].sum()
+
+    result = {
+        "customer_id": int(customer_id),
+        "transaction_count": int(len(subset)),
+        "total_credit": float(total_credit),
+        "total_debit": float(total_debit),
+        "net_amount": float(total_credit - total_debit),
+        "average_transaction_amount": float(subset["amount"].mean()),
+    }
+    return result
+
+
+def top_customers_by_spending(df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    """
+    Return the top N customers by total debit (spending).
+
+    This answers a common business style question:
+        "Who are our highest spenders?"
+    """
+    debit_only = df[df["type"] == "debit"]
+
+    ranking = (
+        debit_only.groupby("customer_id")["amount"]
+        .sum()
+        .reset_index(name="total_spent")
+        .sort_values("total_spent", ascending=False)
+        .head(n)
+    )
+    return ranking
+
+
+def create_monthly_net_amount_plot(df: pd.DataFrame):
+    """
+    Create a simple line plot of net amount by month.
+
+    Instead of showing the plot directly, this function returns the
+    matplotlib Figure object.  That makes the function reusable:
+    - in a script, you can save it to a file,
+    - in a dashboard, you can display it in a different way.
+    """
+    monthly = monthly_summary(df)
+
+    fig, ax = plt.subplots()
+    ax.plot(monthly["year_month"], monthly["net_amount"], marker="o")
+    ax.set_xlabel("Year-Month")
+    ax.set_ylabel("Net Amount (credit - debit)")
+    ax.set_title("Monthly Net Amount")
+    ax.tick_params(axis="x", rotation=45)
+    fig.tight_layout()
+    return fig
+
+
+def main():
+    """
+    Entry point if this file is run as a script.
+
+    This gives a quick text summary in the terminal and saves one plot.
+    """
+    # Adjust the path if your CSV is in a different folder
+    csv_path = "../data/financial_transactions.csv"
+
+    df = load_transactions(csv_path)
+
+    print("=== Overall Summary ===")
+    overall = overall_summary(df)
+    for key, value in overall.items():
+        label = key.replace("_", " ").title()
+        if isinstance(value, float):
+            print(f"{label}: {value:,.2f}")
+        else:
+            print(f"{label}: {value}")
+
+    print("\n=== Monthly Summary (first 5 rows) ===")
+    print(monthly_summary(df).head())
+
+    print("\n=== Top 10 Customers By Spending ===")
+    print(top_customers_by_spending(df, n=10))
+
+    # Create and save a plot as an example of a reusable function
+    fig = create_monthly_net_amount_plot(df)
+    fig.savefig("monthly_net_amount.png")
+    print("\nSaved monthly_net_amount.png in the current folder.")
+
+
+# Only run main() when this file is executed directly,
+# not when it is imported from somewhere else.
+if __name__ == "__main__":
+    main()
+
