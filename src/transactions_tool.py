@@ -74,7 +74,7 @@ def load_and_clean_transactions(csv_path: str = CSV_PATH) -> pd.DataFrame:
 # =====================================================================
 # User Story 2 – Generate Overall Financial Summary
 # =====================================================================
-
+# Task 23 update
 def generate_overall_financial_summary(df: pd.DataFrame) -> dict:
     """
     Calculate high-level metrics for the entire dataset.
