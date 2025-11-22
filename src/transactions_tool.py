@@ -120,7 +120,7 @@ def generate_overall_financial_summary(df: pd.DataFrame) -> dict:
 
 def generate_monthly_summary_report(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Group transactions by year-month and compute:
+   Group transactions by year-month and compute:
 
         * total_credit
         * total_debit
