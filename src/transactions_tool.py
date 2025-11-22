@@ -90,7 +90,7 @@ def generate_overall_financial_summary(df: pd.DataFrame) -> dict:
     avg_amount = df["amount"].mean()
     max_amount = df["amount"].max()
     min_amount = df["amount"].min()
-
+ 
     summary = {
         "total_transactions": total_transactions,
         "total_credit": total_credit,
@@ -120,7 +120,7 @@ def generate_overall_financial_summary(df: pd.DataFrame) -> dict:
 
 def generate_monthly_summary_report(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Group transactions by year-month and compute:
+   Group transactions by year-month and compute:
 
         * total_credit
         * total_debit
